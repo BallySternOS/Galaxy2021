@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  1
+#define GALAXY_2021_MINOR_VERSION  2
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -67,7 +67,8 @@ boolean MachineStateChanged = true;
 #define MACHINE_STATE_ADJUST_EXTRA_BALL_RANK    -31
 #define MACHINE_STATE_ADJUST_SPECIAL_RANK       -32
 #define MACHINE_STATE_ADJUST_SUN_MISSION_RANK   -33
-#define MACHINE_STATE_ADJUST_DONE               -34
+#define MACHINE_STATE_AJDUST_SIDE_QUEST_START   -34
+#define MACHINE_STATE_ADJUST_DONE               -35
 
 // The lower 4 bits of the Game Mode are modes, the upper 4 are for frenzies
 // and other flags that carry through different modes
@@ -110,6 +111,7 @@ boolean MachineStateChanged = true;
 #define EEPROM_RANK_FOR_EB_BYTE         114
 #define EEPROM_RANK_FOR_SPECIAL_BYTE    115
 #define EEPROM_RANK_FOR_SUN_BYTE        116
+#define EEPROM_SIDE_QUEST_START_BYTE    117
 #define EEPROM_EXTRA_BALL_SCORE_BYTE    140
 #define EEPROM_SPECIAL_SCORE_BYTE       144
 
@@ -413,7 +415,6 @@ byte MissionFeatureShot[] = { MISSION_FEATURE_SHOT_DROPS, MISSION_FEATURE_SHOT_L
                               MISSION_FEATURE_SHOT_LOWER_POPS, MISSION_FEATURE_SHOT_SPINNER,
                               MISSION_FEATURE_SHOT_SAUCER };
 
-byte GalaxyMultiplier[4];
 byte CurrentSaucerValue;
 byte SaucerHitLampNum;
 byte CurrentFuel;
@@ -430,6 +431,8 @@ byte SpinnerHits[4];
 byte SideQuestsQualified[4];
 byte OutlaneStatus;
 byte WizardLastDropTargetUp;
+byte SideQuestStartSwitches;
+byte SideQuestNumTopPops;
 
 boolean GeneralIlluminationOn = true;
 boolean TimersPaused = true;
@@ -463,6 +466,8 @@ unsigned long WizardLastDropTargetSet;
 unsigned long WizardJackpotValue;
 unsigned long WizardJackpotLastChanged;
 
+#define SIDE_QUEST_START_3_TOP_POPS 0x01
+#define SIDE_QUEST_START_RIGHT_A    0x02
 
 #define MISSION_TO_MERCURY      0
 #define MISSION_TO_VENUS        1
@@ -535,6 +540,9 @@ void ReadStoredParameters() {
 
   MaxTiltWarnings = ReadSetting(EEPROM_TILT_WARNING_BYTE, 2);
   if (MaxTiltWarnings > 2) MaxTiltWarnings = 2;
+
+  SideQuestStartSwitches = ReadSetting(EEPROM_SIDE_QUEST_START_BYTE, 0);
+  if (SideQuestStartSwitches > 0x03) SideQuestStartSwitches = 0;
 
   byte awardOverride = ReadSetting(EEPROM_AWARD_OVERRIDE_BYTE, 99);
   if (awardOverride != 99) {
@@ -1881,6 +1889,14 @@ int RunSelfTest(int curState, boolean curStateChanged) {
           CurrentAdjustmentStorageByte = EEPROM_RANK_FOR_SUN_BYTE;
           break;
 
+        case MACHINE_STATE_AJDUST_SIDE_QUEST_START:
+          AdjustmentType = ADJ_TYPE_MIN_MAX;
+          AdjustmentValues[0] = 0;
+          AdjustmentValues[1] = 3;
+          CurrentAdjustmentByte = &SideQuestStartSwitches;
+          CurrentAdjustmentStorageByte = EEPROM_SIDE_QUEST_START_BYTE;
+          break;
+
         case MACHINE_STATE_ADJUST_DONE:
           returnState = MACHINE_STATE_ATTRACT;
           break;
@@ -2197,7 +2213,6 @@ int InitGamePlay(boolean curStateChanged) {
       MissionsCompleted[count] = 0;
       GalaxyTurnaroundLights[count] = 0;
       GalaxyStatus[count] = 0;
-      GalaxyMultiplier[count] = 1;
       PlayerRank[count] = 0; 
       CurrentAchievements[count] = 0;
       SpinnerHits[count] = 0;
@@ -2300,7 +2315,8 @@ int InitNewBall(bool curStateChanged, byte playerNum, int ballNum) {
     SideQuestEndTime = 0;
     SideQuestQualifiedReminderPlayed = false;
     SaucerValueDecreaseTime = 0;
-
+    SideQuestNumTopPops = 0;
+    
     for (int count=0; count<6; count++) {
       GalaxyLetterAnimationEnd[count] = 0;
     }
@@ -2564,6 +2580,7 @@ int ManageGameMode() {
       if (SideQuestQualifiedEndTime==0 && SideQuestsQualified[CurrentPlayer]) {
         SideQuestQualifiedEndTime = CurrentTime + SIDE_QUEST_QUALIFY_TIME;
         SideQuestQualifiedReminderPlayed = false;
+        SideQuestNumTopPops = 0;
       } else if (SideQuestQualifiedEndTime!=0) {
         if (CurrentTime>SideQuestQualifiedEndTime) {
           SideQuestsQualified[CurrentPlayer] = 0;
@@ -3547,6 +3564,20 @@ void HandleDropTargetHit(byte switchHit) {
 
 
 
+void StartSideQuest() {
+  GameMode |= SideQuestsQualified[CurrentPlayer];
+  PlaySoundEffect(SOUND_EFFECT_SIDE_QUEST_STARTED, ConvertVolumeSettingToGain(SoundEffectsVolume));
+  QueueNotification((SOUND_EFFECT_VP_SIDE_QUEST_1-1)+(unsigned int)(SideQuestsQualified[CurrentPlayer]/16), 0);
+  SideQuestEndTime = CurrentTime + ((unsigned long)CountBits(SideQuestsQualified[CurrentPlayer]) * 10000) + 20000;
+  SideQuestsQualified[CurrentPlayer] = 0;
+  SideQuestQualifiedEndTime = 0;
+  ScoreMultiplier = 1 + (unsigned long)CountBits(GameMode/16);
+  QueueNotification((SOUND_EFFECT_VP_1X_PLAYFIELD-1) + ScoreMultiplier, 0);
+  StartBackgroundMusic(MUSIC_TYPE_SIDE_QUEST);              
+}
+
+
+
 int RunGamePlayMode(int curState, boolean curStateChanged) {
   int returnState = curState;
   unsigned long scoreAtTop = CurrentScores[CurrentPlayer];
@@ -3664,6 +3695,13 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
           } else {
             PlaySoundEffect(SOUND_EFFECT_BUMPER_HIT, ConvertVolumeSettingToGain(SoundEffectsVolume));
           }
+
+          if (SideQuestQualifiedEndTime) {
+            SideQuestNumTopPops += 1;
+            if (SideQuestNumTopPops==3 && (SideQuestStartSwitches & SIDE_QUEST_START_3_TOP_POPS)) {
+              StartSideQuest();
+            }
+          }
           CurrentScores[CurrentPlayer] += ScoreMultiplier * 100;
           LastSwitchHitTime = CurrentTime;
           break;
@@ -3707,6 +3745,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             StartScoreAnimation(skillShotScore);
             PlaySoundEffect(SOUND_EFFECT_SKILL_SHOT, ConvertVolumeSettingToGain(SoundEffectsVolume));
             QueueNotification(SOUND_EFFECT_VP_SKILL_SHOT_1+CurrentTime%4, 0);
+            BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+2000);
           } else if ((GameMode & GAME_BASE_MODE)==GAME_MODE_WIZARD_QUALIFIED) {
             SetGameMode(GAME_MODE_WIZARD_START);
             StartScoreAnimation((unsigned long)50000, false);
@@ -3747,6 +3786,11 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
           break;
         case SW_A2_ROLLOVER:
           HandleGalaxySwitch(3);
+          if (SideQuestQualifiedEndTime) {
+            if (SideQuestStartSwitches & SIDE_QUEST_START_RIGHT_A) {
+              StartSideQuest();
+            }
+          }
           //if (BallFirstSwitchHitTime == 0) BallFirstSwitchHitTime = CurrentTime;
           LastSwitchHitTime = CurrentTime;
           break;
@@ -3774,8 +3818,10 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
               SaucerHitAnimationEnd = CurrentTime + 3000;
               SaucerHitLampNum = (CurrentSaucerValue/2)-1;
               StartScoreAnimation(((unsigned long)CurrentSaucerValue)*(unsigned long)10000);
-              PlaySoundEffect(SOUND_EFFECT_SKILL_SHOT, ConvertVolumeSettingToGain(SoundEffectsVolume));
-              QueueNotification(SOUND_EFFECT_VP_SKILL_SHOT_1+CurrentTime%4, 0);
+              if (!SideQuestsQualified[CurrentPlayer]) {
+                PlaySoundEffect(SOUND_EFFECT_SKILL_SHOT, ConvertVolumeSettingToGain(SoundEffectsVolume));
+                QueueNotification(SOUND_EFFECT_VP_SKILL_SHOT_1+CurrentTime%4, 0);
+              }
             } else if ((GameMode & GAME_BASE_MODE)==GAME_MODE_MISSION_SECOND_LEG) {
               // Saucer skips cryo sleep
               SetGameMode(GAME_MODE_MISSION_THIRD_LEG);
@@ -3800,16 +3846,8 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
               SaucerValueDecreaseTime = CurrentTime + ((unsigned long)(17-CurrentSaucerValue))*(unsigned long)1000;
             }
   
-            if (SideQuestQualifiedEndTime) {
-              GameMode |= SideQuestsQualified[CurrentPlayer];
-              PlaySoundEffect(SOUND_EFFECT_SIDE_QUEST_STARTED, ConvertVolumeSettingToGain(SoundEffectsVolume));
-              QueueNotification((SOUND_EFFECT_VP_SIDE_QUEST_1-1)+(unsigned int)(SideQuestsQualified[CurrentPlayer]/16), 0);
-              SideQuestEndTime = CurrentTime + ((unsigned long)CountBits(SideQuestsQualified[CurrentPlayer]) * 10000) + 20000;
-              SideQuestsQualified[CurrentPlayer] = 0;
-              SideQuestQualifiedEndTime = 0;
-              ScoreMultiplier = 1 + (unsigned long)CountBits(GameMode/16);
-              QueueNotification((SOUND_EFFECT_VP_1X_PLAYFIELD-1) + ScoreMultiplier, 0);
-              StartBackgroundMusic(MUSIC_TYPE_SIDE_QUEST);              
+            if (SideQuestQualifiedEndTime || ((GameMode & GAME_BASE_MODE)==GAME_MODE_SKILL_SHOT && SideQuestsQualified[CurrentPlayer])) {
+              StartSideQuest();
             }
             
             BSOS_PushToTimedSolenoidStack(SOL_SAUCER, 5, CurrentTime+1000, true);
