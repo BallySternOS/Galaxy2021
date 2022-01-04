@@ -1018,7 +1018,7 @@ void ShowMissionLamps() {
     BSOS_SetLampState(LAMP_SUN_SPECIAL, 0);
   } else {
     // Show all the complete/undone missions
-    for (int count=0; count<MAX_NUMBER_OF_MISSIONS; count++) {
+    for (int count=0; count<MISSION_TO_SUN; count++) {
       if (count!=NextMission) BSOS_SetLampState(LAMP_MERCURY-count, CheckIfMissionComplete(count));
     }
 
@@ -2803,7 +2803,7 @@ int ManageGameMode() {
         ScoreMultiplier = (PopsForMultiplier/10) + 1 + (unsigned long)CountBits(GameMode/16);
         if (ScoreMultiplier>6) ScoreMultiplier = 6;
         if (lastScoreMultiplier!=ScoreMultiplier) QueueNotification((SOUND_EFFECT_VP_1X_PLAYFIELD-1) + ScoreMultiplier, 0);
-        TimerTicks = true;
+        TimerTicks = 0;
         MidlaneStatus = 1;
         DisplaysNeedResetting = false;
         QueueNotification(SOUND_EFFECT_VP_ENTERING_CRYO_SLEEP, 0);
