@@ -1242,14 +1242,14 @@ void ShowPlayerScores(byte displayToUpdate, boolean flashCurrent, boolean dashCu
             }
           }
         } else {
-          if (flashCurrent) {
+          if (flashCurrent && displayToUpdate == scoreCount) {
             unsigned long flashSeed = CurrentTime / 250;
             if (flashSeed != LastFlashOrDash) {
               LastFlashOrDash = flashSeed;
               if (((CurrentTime / 250) % 2) == 0) BSOS_SetDisplayBlank(scoreCount, 0x00);
               else BSOS_SetDisplay(scoreCount, displayScore, true, 2);
             }
-          } else if (dashCurrent) {
+          } else if (dashCurrent && displayToUpdate == scoreCount) {
             unsigned long dashSeed = CurrentTime / 50;
             if (dashSeed != LastFlashOrDash) {
               LastFlashOrDash = dashSeed;
