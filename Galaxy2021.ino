@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  2
+#define GALAXY_2021_MINOR_VERSION  3
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
