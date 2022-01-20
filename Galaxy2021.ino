@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  3
+#define GALAXY_2021_MINOR_VERSION  5
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -315,6 +315,7 @@ byte SoundtrackSelection = 0;
 byte Credits = 0;
 byte MusicLevel = 3;
 byte BallSaveNumSeconds = 0;
+byte CurrentBallSaveNumSeconds = 0;
 byte MaximumCredits = 40;
 byte BallsPerGame = 3;
 byte DimLevel = 2;
@@ -333,6 +334,7 @@ unsigned long ExtraBallValue = 0;
 unsigned long SpecialValue = 0;
 unsigned long CurrentTime = 0;
 unsigned long SoundSettingTimeout = 0;
+
 
 /*********************************************************************
 
@@ -369,7 +371,9 @@ unsigned long ScoreAdditionAnimation;
 unsigned long ScoreAdditionAnimationStartTime;
 unsigned long LastRemainingAnimatedScoreShown;
 unsigned long ScoreMultiplier;
+unsigned long BallSaveEndTime;
 
+#define BALL_SAVE_GRACE_PERIOD  1500
 
 
 /*********************************************************************
@@ -433,6 +437,7 @@ byte OutlaneStatus;
 byte WizardLastDropTargetUp;
 byte SideQuestStartSwitches;
 byte SideQuestNumTopPops;
+byte GalaxyKickerBallSave = 2;
 
 boolean GeneralIlluminationOn = true;
 boolean TimersPaused = true;
@@ -513,6 +518,7 @@ void ReadStoredParameters() {
 
   BallSaveNumSeconds = ReadSetting(EEPROM_BALL_SAVE_BYTE, 15);
   if (BallSaveNumSeconds > 20) BallSaveNumSeconds = 20;
+  CurrentBallSaveNumSeconds = BallSaveNumSeconds;
 
   MusicLevel = ReadSetting(EEPROM_MUSIC_LEVEL_BYTE, 3);
   if (MusicLevel > 4) MusicLevel = 4;
@@ -892,9 +898,10 @@ void ShowBonusXLamps() {
 
 void ShowShootAgainLamp() {
 
-  if (!BallSaveUsed && BallSaveNumSeconds > 0 && (CurrentTime - BallFirstSwitchHitTime) < ((unsigned long)(BallSaveNumSeconds - 1) * 1000)) {
-    unsigned long msRemaining = ((unsigned long)(BallSaveNumSeconds - 1) * 1000) - (CurrentTime - BallFirstSwitchHitTime);
-    BSOS_SetLampState(LAMP_SHOOT_AGAIN, 1, 0, (msRemaining < 1000) ? 100 : 500);
+  if (!BallSaveUsed && CurrentBallSaveNumSeconds > 0 && (CurrentTime<BallSaveEndTime)) {
+    unsigned long msRemaining = 5000;
+    if (BallSaveEndTime!=0) msRemaining = BallSaveEndTime - CurrentTime;
+    BSOS_SetLampState(LAMP_SHOOT_AGAIN, 1, 0, (msRemaining < 5000) ? 100 : 500);
   } else {
     BSOS_SetLampState(LAMP_SHOOT_AGAIN, SamePlayerShootsAgain);
   }
@@ -1426,7 +1433,7 @@ void AwardExtraBall() {
 //  Audio Output functions
 //
 ////////////////////////////////////////////////////////////////////////////
-int VolumeToGainConversion[] = {-18, -16, -14, -12, -10, -8, -6, -4, -2, 0};
+int VolumeToGainConversion[] = {-70, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0};
 int ConvertVolumeSettingToGain(byte volumeSetting) {
   if (volumeSetting==0) return -70;
   if (volumeSetting>10) return 0;
@@ -1653,7 +1660,7 @@ void PlaySoundEffect(unsigned int soundEffectNum, int gain) {
 
 #ifndef USE_WAV_TRIGGER_1p3
   if (  soundEffectNum == SOUND_EFFECT_THUMPER_BUMPER_HIT ||
-        SOUND_EFFECT_SPINNER ) wTrig.trackStop(soundEffectNum);
+        soundEffectNum == SOUND_EFFECT_SPINNER ) wTrig.trackStop(soundEffectNum);
 #endif
   wTrig.trackPlayPoly(soundEffectNum);
   wTrig.trackGain(soundEffectNum, gain);
@@ -1731,6 +1738,7 @@ int RunSelfTest(int curState, boolean curStateChanged) {
     //  reset while the WAV Trigger was already playing.
     StopAudio();
     PlaySoundEffect(SOUND_EFFECT_SELF_TEST_MODE_START-curState, 0);
+    SoundSettingTimeout = 0;
   } else {
     if (SoundSettingTimeout && CurrentTime>SoundSettingTimeout) {
       SoundSettingTimeout = 0;
@@ -2258,6 +2266,7 @@ int InitNewBall(bool curStateChanged, byte playerNum, int ballNum) {
     BSOS_TurnOffAllLamps();
     SetGeneralIllumination(false);
     BallFirstSwitchHitTime = 0;
+    BallSaveEndTime = 0;
 
     BSOS_SetDisableFlippers(false);
     BSOS_EnableSolenoidStack();
@@ -2268,6 +2277,7 @@ int InitNewBall(bool curStateChanged, byte playerNum, int ballNum) {
     BSOS_SetDisplayBallInPlay(ballNum);
     BSOS_SetLampState(LAMP_HEAD_TILT, 0);
 
+    CurrentBallSaveNumSeconds = BallSaveNumSeconds;
     if (BallSaveNumSeconds > 0) {
       BSOS_SetLampState(LAMP_SHOOT_AGAIN, 1, 0, 500);
     }
@@ -2451,6 +2461,12 @@ void ManageBackgroundSong() {
   } else if (BackgroundSongEndTime!=0 && CurrentTime>BackgroundSongEndTime) {
     StartBackgroundMusic(CurrentMusicType);
   }
+}
+
+void SetBallSave(unsigned long numberOfMilliseconds) {
+  BallSaveEndTime = CurrentTime + numberOfMilliseconds;
+  BallSaveUsed = true;
+  if (CurrentBallSaveNumSeconds==0)  CurrentBallSaveNumSeconds = 2;
 }
 
 
@@ -2673,6 +2689,7 @@ int ManageGameMode() {
       if (GameModeEndTime!=0 && CurrentTime>GameModeEndTime) {
         StartScoreAnimation(3000 * ScoreMultiplier);
         BSOS_PushToSolenoidStack(SOL_GALAXY_KICKER, 5, true);
+        SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
         GalaxyTurnaroundEjectTime = CurrentTime;
         SetGameMode(GAME_MODE_MISSION_FUELING);
         QueueNotification(SOUND_EFFECT_VP_MERCURY_MISSION_START+NextMission, 0);
@@ -3012,6 +3029,7 @@ int ManageGameMode() {
         // Kick out the ball
         if (BSOS_ReadSingleSwitchState(SW_GALAXY_TURNAROUND)) {
           BSOS_PushToSolenoidStack(SOL_GALAXY_KICKER, 5);      
+          SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
         }
         if (BSOS_ReadSingleSwitchState(SW_SAUCER)) {
           BSOS_PushToSolenoidStack(SOL_SAUCER, 5);      
@@ -3063,8 +3081,7 @@ int ManageGameMode() {
           DisplaysNeedResetting = false;
           ShowPlayerScores(0xFF, false, false);
         }
-      }
-      
+      }      
 
       if (((CurrentTime-GameModeStartTime)/3000)%2) {
         specialAnimationRunning = true;
@@ -3188,7 +3205,7 @@ int ManageGameMode() {
           ScoreAdditionAnimation = 0;
           ShowPlayerScores(0xFF, false, false);
           // if we haven't used the ball save, and we're under the time limit, then save the ball
-          if (!BallSaveUsed && ((CurrentTime - BallFirstSwitchHitTime)) < ((unsigned long)BallSaveNumSeconds * 1000)) {
+          if (!BallSaveUsed && CurrentTime<(BallSaveEndTime+BALL_SAVE_GRACE_PERIOD)) {
             BSOS_PushToTimedSolenoidStack(SOL_OUTHOLE, 4, CurrentTime + 100);
             BallSaveUsed = true;
             QueueNotification(SOUND_EFFECT_VP_SHOOT_AGAIN, 0);
@@ -3386,6 +3403,7 @@ void HandleGalaxyTurnaround() {
     GalaxyBounceAnimationStart = CurrentTime;
     PlaySoundEffect(SOUND_EFFECT_GALAXY_BOUNCE, ConvertVolumeSettingToGain(SoundEffectsVolume));
     BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+600);    
+    SetBallSave(600 + (unsigned long)GalaxyKickerBallSave * 1000);
   }
 }
 
@@ -3635,6 +3653,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
     returnState = ShowMatchSequence(curStateChanged);
   }
 
+  unsigned long lastBallFirstSwitchHitTime = BallFirstSwitchHitTime;
   byte switchHit;
 
   if (NumTiltWarnings <= MaxTiltWarnings) {
@@ -3734,9 +3753,13 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
         case SW_BLUE_DROP_TARGET:
         case SW_YELLOW_DROP_TARGET:
         case SW_BLACK_DROP_TARGET:
-          HandleDropTargetHit(switchHit);
-          if (BallFirstSwitchHitTime == 0) BallFirstSwitchHitTime = CurrentTime;
-          LastSwitchHitTime = CurrentTime;
+          // Don't accept target drops in the first second of skill shot
+          // (in case one of the targets falls accidentally)
+          if ( (GameMode & GAME_BASE_MODE)!=GAME_MODE_SKILL_SHOT || CurrentTime>(GameModeStartTime+1000) ) {
+            HandleDropTargetHit(switchHit);
+            if (BallFirstSwitchHitTime == 0) BallFirstSwitchHitTime = CurrentTime;
+            LastSwitchHitTime = CurrentTime;
+          }
           break;
         case SW_GALAXY_TURNAROUND:
           if ((GameMode & GAME_BASE_MODE)==GAME_MODE_SKILL_SHOT) {
@@ -3746,6 +3769,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             PlaySoundEffect(SOUND_EFFECT_SKILL_SHOT, ConvertVolumeSettingToGain(SoundEffectsVolume));
             QueueNotification(SOUND_EFFECT_VP_SKILL_SHOT_1+CurrentTime%4, 0);
             BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+2000);
+            SetBallSave(2000 + (unsigned long)GalaxyKickerBallSave * 1000);
           } else if ((GameMode & GAME_BASE_MODE)==GAME_MODE_WIZARD_QUALIFIED) {
             SetGameMode(GAME_MODE_WIZARD_START);
             StartScoreAnimation((unsigned long)50000, false);
@@ -3754,6 +3778,8 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             StartScoreAnimation((unsigned long)WizardJackpotValue, false);
             WizardJackpotValue = 0;
             WizardJackpotLastChanged = 0;
+            BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+1000);
+            SetBallSave(1000 + (unsigned long)GalaxyKickerBallSave * 1000);
           } else {
             HandleGalaxyTurnaround();
             CheckForMissionEnd(MISSION_FINISH_SHOT_GALAXY_TURNAROUND);
@@ -3955,6 +3981,9 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             SpecialLit[CurrentPlayer] = 0;
             AwardSpecial();
           }
+          if (BallSaveEndTime!=0) {
+            BallSaveEndTime += 3000;
+          }
           break;
         case SW_LEFT_OUTLANE_ROLLOVER:
           HandleGalaxySwitch(4);
@@ -3968,6 +3997,9 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
           if (SpecialLit[CurrentPlayer]==1) {
             SpecialLit[CurrentPlayer] = 0;
             AwardSpecial();
+          }
+          if (BallSaveEndTime!=0) {
+            BallSaveEndTime += 3000;
           }
           break;
         case SW_CENTER_ROLLOVER:
@@ -4012,6 +4044,13 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
           break;
       }
     }
+  }
+
+  if (lastBallFirstSwitchHitTime==0 && BallFirstSwitchHitTime!=0) {
+    BallSaveEndTime = BallFirstSwitchHitTime + ((unsigned long)CurrentBallSaveNumSeconds)*1000;
+  }
+  if (CurrentTime>BallSaveEndTime) {
+    BallSaveEndTime = 0;
   }
 
   if (!ScrollingScores && CurrentScores[CurrentPlayer] > BALLY_STERN_OS_MAX_DISPLAY_SCORE) {
