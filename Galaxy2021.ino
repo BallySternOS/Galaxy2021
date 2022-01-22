@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  5
+#define GALAXY_2021_MINOR_VERSION  6
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -2465,7 +2465,7 @@ void ManageBackgroundSong() {
 
 void SetBallSave(unsigned long numberOfMilliseconds) {
   BallSaveEndTime = CurrentTime + numberOfMilliseconds;
-  BallSaveUsed = true;
+  BallSaveUsed = false;
   if (CurrentBallSaveNumSeconds==0)  CurrentBallSaveNumSeconds = 2;
 }
 
