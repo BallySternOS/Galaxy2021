@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  6
+#define GALAXY_2021_MINOR_VERSION  8
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -1124,7 +1124,11 @@ void OverrideScoreDisplay(byte displayNum, unsigned long value, boolean animate)
 byte GetDisplayMask(byte numDigits) {
   byte displayMask = 0;
   for (byte digitCount = 0; digitCount < numDigits; digitCount++) {
+#ifdef BALLY_STERN_OS_USE_7_DIGIT_DISPLAYS    
+    displayMask |= (0x40 >> digitCount);
+#else
     displayMask |= (0x20 >> digitCount);
+#endif
   }
   return displayMask;
 }
@@ -1659,8 +1663,8 @@ void PlaySoundEffect(unsigned int soundEffectNum, int gain) {
 #if defined(USE_WAV_TRIGGER) || defined(USE_WAV_TRIGGER_1p3)
 
 #ifndef USE_WAV_TRIGGER_1p3
-  if (  soundEffectNum == SOUND_EFFECT_THUMPER_BUMPER_HIT ||
-        soundEffectNum == SOUND_EFFECT_SPINNER ) wTrig.trackStop(soundEffectNum);
+  if (  soundEffectNum == SOUND_EFFECT_BUMPER_HIT ||
+        soundEffectNum == SOUND_EFFECT_REFUELING_SPINNER ) wTrig.trackStop(soundEffectNum);
 #endif
   wTrig.trackPlayPoly(soundEffectNum);
   wTrig.trackGain(soundEffectNum, gain);
