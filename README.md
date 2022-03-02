@@ -17,6 +17,8 @@ The base library is separated from this implementation so that it can be used by
 * Open the Galaxy2021.ino in Arduino's IDE
 * The WAV files for the Wav Trigger board can be found here:  
   * https://drive.google.com/file/d/1FlPcCNtWVUEnNESh3lf867T1IfVJk6ec/view?usp=sharing  
+  * Adjustment prompts (add these files to the WAV trigger SD card updated Mar 2, 2022) https://drive.google.com/file/d/1DaYjVuPgqq50uSR9Gg-7i6G6g4yI3FwP/view?usp=sharing
+  
     
   
 Refer to the Wiki for instructions on how to build the hardware. 
@@ -24,3 +26,4 @@ Refer to the Wiki for instructions on how to build the hardware.
   
   
 Link for audio files:  https://drive.google.com/file/d/1FlPcCNtWVUEnNESh3lf867T1IfVJk6ec/view?usp=sharing  
+Adjustment prompts:  https://drive.google.com/file/d/1DaYjVuPgqq50uSR9Gg-7i6G6g4yI3FwP/view?usp=sharing
