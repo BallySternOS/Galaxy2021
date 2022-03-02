@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  8
+#define GALAXY_2021_MINOR_VERSION  10
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -68,7 +68,9 @@ boolean MachineStateChanged = true;
 #define MACHINE_STATE_ADJUST_SPECIAL_RANK       -32
 #define MACHINE_STATE_ADJUST_SUN_MISSION_RANK   -33
 #define MACHINE_STATE_AJDUST_SIDE_QUEST_START   -34
-#define MACHINE_STATE_ADJUST_DONE               -35
+#define MACHINE_STATE_ADJUST_GALAXY_BALL_SAVE   -35
+#define MACHINE_STATE_ADJUST_SAVE_PROGRESS      -36
+#define MACHINE_STATE_ADJUST_DONE               -37
 
 // The lower 4 bits of the Game Mode are modes, the upper 4 are for frenzies
 // and other flags that carry through different modes
@@ -112,6 +114,8 @@ boolean MachineStateChanged = true;
 #define EEPROM_RANK_FOR_SPECIAL_BYTE    115
 #define EEPROM_RANK_FOR_SUN_BYTE        116
 #define EEPROM_SIDE_QUEST_START_BYTE    117
+#define EEPROM_GALAXY_BALLSAVE_BYTE     118
+#define EEPROM_SAVE_PROGRESS_BYTE       119
 #define EEPROM_EXTRA_BALL_SCORE_BYTE    140
 #define EEPROM_SPECIAL_SCORE_BYTE       144
 
@@ -402,6 +406,9 @@ byte ExtraBallLit[4];
 byte SpecialLit[4];
 byte GalaxyTurnaroundLights[4];
 byte GalaxyStatus[4];
+byte ResumeGameMode[4];
+byte ResumeFuel[4];
+byte ResumeMissionNum[4];
 byte FuelRequirements[] = {40, 20, 20, 32, 40, 72, 120, 136, 48};
 byte MissionStartStage[] = {GAME_MODE_MISSION_THIRD_LEG, GAME_MODE_MISSION_THIRD_LEG, 
                             GAME_MODE_MISSION_SECOND_LEG, GAME_MODE_MISSION_SECOND_LEG, 
@@ -437,12 +444,13 @@ byte OutlaneStatus;
 byte WizardLastDropTargetUp;
 byte SideQuestStartSwitches;
 byte SideQuestNumTopPops;
-byte GalaxyKickerBallSave = 2;
+byte GalaxyKickerBallSave = 5;
 
 boolean GeneralIlluminationOn = true;
 boolean TimersPaused = true;
 boolean SideQuestQualifiedReminderPlayed;
 boolean ShowGalaxyTurnaroundDraw;
+boolean SaveMissionProgress = true;
 
 unsigned int MissionsCompleted[4];
 
@@ -549,6 +557,11 @@ void ReadStoredParameters() {
 
   SideQuestStartSwitches = ReadSetting(EEPROM_SIDE_QUEST_START_BYTE, 0);
   if (SideQuestStartSwitches > 0x03) SideQuestStartSwitches = 0;
+
+  GalaxyKickerBallSave = ReadSetting(EEPROM_GALAXY_BALLSAVE_BYTE, 5);
+  if (GalaxyKickerBallSave>10) GalaxyKickerBallSave = 5;
+
+  SaveMissionProgress = ReadSetting(EEPROM_SAVE_PROGRESS_BYTE, 1) ? true : false;
 
   byte awardOverride = ReadSetting(EEPROM_AWARD_OVERRIDE_BYTE, 99);
   if (awardOverride != 99) {
@@ -1843,10 +1856,9 @@ int RunSelfTest(int curState, boolean curStateChanged) {
           break;
         case MACHINE_STATE_ADJUST_BALLS_OVERRIDE:
           AdjustmentType = ADJ_TYPE_LIST;
-          NumAdjustmentValues = 3;
+          NumAdjustmentValues = 2;
           AdjustmentValues[0] = 3;
           AdjustmentValues[1] = 5;
-          AdjustmentValues[2] = 99;
           CurrentAdjustmentByte = &BallsPerGame;
           CurrentAdjustmentStorageByte = EEPROM_BALLS_OVERRIDE_BYTE;
           break;
@@ -1908,6 +1920,18 @@ int RunSelfTest(int curState, boolean curStateChanged) {
           CurrentAdjustmentByte = &SideQuestStartSwitches;
           CurrentAdjustmentStorageByte = EEPROM_SIDE_QUEST_START_BYTE;
           break;
+
+        case MACHINE_STATE_ADJUST_GALAXY_BALL_SAVE:
+          AdjustmentValues[1] = 10;
+          CurrentAdjustmentByte = &GalaxyKickerBallSave;
+          CurrentAdjustmentStorageByte = EEPROM_GALAXY_BALLSAVE_BYTE;
+          break;          
+
+        case MACHINE_STATE_ADJUST_SAVE_PROGRESS:
+          AdjustmentValues[1] = 1;
+          CurrentAdjustmentByte = (byte *)&SaveMissionProgress;
+          CurrentAdjustmentStorageByte = EEPROM_SAVE_PROGRESS_BYTE;
+          break;          
 
         case MACHINE_STATE_ADJUST_DONE:
           returnState = MACHINE_STATE_ATTRACT;
@@ -2232,6 +2256,9 @@ int InitGamePlay(boolean curStateChanged) {
       SideQuestsQualified[count] = 0;
       ExtraBallLit[count] = 0;
       SpecialLit[count] = 0;
+      ResumeGameMode[count] = GAME_MODE_UNSTRUCTURED_PLAY;
+      ResumeFuel[count] = 0;
+      ResumeMissionNum[count] = 0;
     }
     memset(CurrentScores, 0, 4 * sizeof(unsigned long));
 
@@ -2330,6 +2357,7 @@ int InitNewBall(bool curStateChanged, byte playerNum, int ballNum) {
     SideQuestQualifiedReminderPlayed = false;
     SaucerValueDecreaseTime = 0;
     SideQuestNumTopPops = 0;
+//    ResumeGameMode[CurrentPlayer] = GAME_MODE_UNSTRUCTURED_PLAY;
     
     for (int count=0; count<6; count++) {
       GalaxyLetterAnimationEnd[count] = 0;
@@ -2575,7 +2603,18 @@ int ManageGameMode() {
       }
 
       if (BallFirstSwitchHitTime != 0) {
-        SetGameMode(GAME_MODE_UNSTRUCTURED_PLAY);
+        if (SaveMissionProgress) {
+          SetGameMode(ResumeGameMode[CurrentPlayer]);
+          if (ResumeGameMode[CurrentPlayer]!=GAME_MODE_UNSTRUCTURED_PLAY) {
+            NextMission = ResumeMissionNum[CurrentPlayer];
+            QueueNotification(SOUND_EFFECT_VP_MERCURY_MISSION_START+NextMission, 0);
+            if (ResumeGameMode[CurrentPlayer]==GAME_MODE_MISSION_FUELING) {
+              CurrentFuel = ResumeFuel[CurrentPlayer];
+            }
+          }
+        } else {
+          SetGameMode(GAME_MODE_UNSTRUCTURED_PLAY);
+        }
         CurrentSaucerValue = 2;
       }
 
@@ -2591,10 +2630,12 @@ int ManageGameMode() {
         SetGeneralIllumination(true);
         GameModeStartTime = CurrentTime;
         CurrentFuel = 0;
+        ResumeFuel[CurrentPlayer] = 0;
         StartBackgroundMusic(MUSIC_TYPE_UNSTRUCTURED_PLAY);
         OutlaneStatus = 0;
         ShowGalaxyTurnaroundDraw = false;
         DisplaysNeedResetting = false;
+        ResumeGameMode[CurrentPlayer] = GAME_MODE_UNSTRUCTURED_PLAY;
       }
 
       if (SideQuestQualifiedEndTime==0 && SideQuestsQualified[CurrentPlayer]) {
@@ -2693,10 +2734,11 @@ int ManageGameMode() {
       if (GameModeEndTime!=0 && CurrentTime>GameModeEndTime) {
         StartScoreAnimation(3000 * ScoreMultiplier);
         BSOS_PushToSolenoidStack(SOL_GALAXY_KICKER, 5, true);
-        SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
+        if (GalaxyKickerBallSave) SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
         GalaxyTurnaroundEjectTime = CurrentTime;
         SetGameMode(GAME_MODE_MISSION_FUELING);
         QueueNotification(SOUND_EFFECT_VP_MERCURY_MISSION_START+NextMission, 0);
+        ResumeMissionNum[CurrentPlayer] = NextMission;
       }
       break;
 
@@ -2713,11 +2755,11 @@ int ManageGameMode() {
         } else {
           QueueNotification(SOUND_EFFECT_VP_ACQUIRE_FUEL, 0);
         }
-        
+        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_FUELING;
       }
 
       currentTimer = (CurrentTime - GameModeStartTime)/2000;
-      if (CurrentFuel < FuelRequired) {
+      if (CurrentFuel < FuelRequired) {        
         if ((currentTimer%2)==0 || (LastSpinnerHit!=0 && (CurrentTime-LastSpinnerHit)<5000)) {
           for (byte count = 0; count < 4; count++) {
             if (count != CurrentPlayer) OverrideScoreDisplay(count, FuelRequired-CurrentFuel, false);
@@ -2737,6 +2779,7 @@ int ManageGameMode() {
         }
         SetGameMode(GAME_MODE_MISSION_READY_TO_LAUNCH);  
       }
+      ResumeFuel[CurrentPlayer] = CurrentFuel;
       
       break;
     case GAME_MODE_MISSION_READY_TO_LAUNCH:
@@ -2751,6 +2794,7 @@ int ManageGameMode() {
         PlayBackgroundSong(SOUND_EFFECT_WAITING_FOR_LAUNCH);
         QueueNotification(SOUND_EFFECT_VP_REFULING_DONE, 0);
         PeriodicModeCheck = CurrentTime + 1000;
+        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_READY_TO_LAUNCH;
       }
 
       currentTimer = ((CurrentTime - GameModeStartTime)/250)%40;
@@ -2780,6 +2824,7 @@ int ManageGameMode() {
         GameModeEndTime = CurrentTime + 3000;
         StartBackgroundMusic(MUSIC_TYPE_MISSION);
         PlaySoundEffect(SOUND_EFFECT_LAUNCH_ROCKET, ConvertVolumeSettingToGain(SoundEffectsVolume));
+        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_LAUNCHING;
       }
 
       specialAnimationRunning = true;
@@ -2799,6 +2844,7 @@ int ManageGameMode() {
         GameModeStartTime = CurrentTime;
         GameModeEndTime = CurrentTime + MISSION_FIRST_LEG_TIME;
         QueueNotification(SOUND_EFFECT_VP_POPS_FOR_PLAYFIELD_MULTI, 0);
+//        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_FIRST_LEG;
       }
       
       for (byte count = 0; count < 4; count++) {
@@ -2828,6 +2874,7 @@ int ManageGameMode() {
         MidlaneStatus = 1;
         DisplaysNeedResetting = false;
         QueueNotification(SOUND_EFFECT_VP_ENTERING_CRYO_SLEEP, 0);
+//        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_SECOND_LEG;
       }
 
       if (!TimersPaused) {
@@ -2864,6 +2911,7 @@ int ManageGameMode() {
         GameModeEndTime = CurrentTime + MISSION_THIRD_LEG_TIME;
         QueueNotification(SOUND_EFFECT_VP_BUILD_MISSION_BONUS_1 + MissionFeatureShot[NextMission], 0);
         AnnounceFinishShotTime = CurrentTime + 5000;
+//        ResumeGameMode[CurrentPlayer] = GAME_MODE_MISSION_THIRD_LEG;
       }
 
       for (byte count = 0; count < 4; count++) {
@@ -2966,6 +3014,7 @@ int ManageGameMode() {
         QueueNotification(SOUND_EFFECT_VP_WAITING_FOR_LAUNCH_MISSION_TO_SUN, 0);
         AnnounceFinishShotTime = CurrentTime + 15000;
         NextMission = MISSION_TO_SUN;
+        ResumeGameMode[CurrentPlayer] = GAME_MODE_WIZARD_QUALIFIED;
       }
 
       if (AnnounceFinishShotTime && CurrentTime>AnnounceFinishShotTime) {
@@ -3033,7 +3082,7 @@ int ManageGameMode() {
         // Kick out the ball
         if (BSOS_ReadSingleSwitchState(SW_GALAXY_TURNAROUND)) {
           BSOS_PushToSolenoidStack(SOL_GALAXY_KICKER, 5);      
-          SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
+          if (GalaxyKickerBallSave) SetBallSave((unsigned long)GalaxyKickerBallSave * 1000);
         }
         if (BSOS_ReadSingleSwitchState(SW_SAUCER)) {
           BSOS_PushToSolenoidStack(SOL_SAUCER, 5);      
@@ -3407,7 +3456,7 @@ void HandleGalaxyTurnaround() {
     GalaxyBounceAnimationStart = CurrentTime;
     PlaySoundEffect(SOUND_EFFECT_GALAXY_BOUNCE, ConvertVolumeSettingToGain(SoundEffectsVolume));
     BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+600);    
-    SetBallSave(600 + (unsigned long)GalaxyKickerBallSave * 1000);
+    if (GalaxyKickerBallSave) SetBallSave(600 + (unsigned long)GalaxyKickerBallSave * 1000);
   }
 }
 
@@ -3773,7 +3822,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             PlaySoundEffect(SOUND_EFFECT_SKILL_SHOT, ConvertVolumeSettingToGain(SoundEffectsVolume));
             QueueNotification(SOUND_EFFECT_VP_SKILL_SHOT_1+CurrentTime%4, 0);
             BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+2000);
-            SetBallSave(2000 + (unsigned long)GalaxyKickerBallSave * 1000);
+            if (GalaxyKickerBallSave) SetBallSave(2000 + (unsigned long)GalaxyKickerBallSave * 1000);
           } else if ((GameMode & GAME_BASE_MODE)==GAME_MODE_WIZARD_QUALIFIED) {
             SetGameMode(GAME_MODE_WIZARD_START);
             StartScoreAnimation((unsigned long)50000, false);
@@ -3783,7 +3832,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
             WizardJackpotValue = 0;
             WizardJackpotLastChanged = 0;
             BSOS_PushToTimedSolenoidStack(SOL_GALAXY_KICKER, 5, CurrentTime+1000);
-            SetBallSave(1000 + (unsigned long)GalaxyKickerBallSave * 1000);
+            if (GalaxyKickerBallSave) SetBallSave(1000 + (unsigned long)GalaxyKickerBallSave * 1000);
           } else {
             HandleGalaxyTurnaround();
             CheckForMissionEnd(MISSION_FINISH_SHOT_GALAXY_TURNAROUND);
@@ -4053,7 +4102,7 @@ int RunGamePlayMode(int curState, boolean curStateChanged) {
   if (lastBallFirstSwitchHitTime==0 && BallFirstSwitchHitTime!=0) {
     BallSaveEndTime = BallFirstSwitchHitTime + ((unsigned long)CurrentBallSaveNumSeconds)*1000;
   }
-  if (CurrentTime>BallSaveEndTime) {
+  if (CurrentTime>(BallSaveEndTime+BALL_SAVE_GRACE_PERIOD)) {
     BallSaveEndTime = 0;
   }
 
