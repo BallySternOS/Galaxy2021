@@ -24,7 +24,7 @@ SendOnlyWavTrigger wTrig;             // Our WAV Trigger object
 #endif
 
 #define GALAXY_2021_MAJOR_VERSION  2021
-#define GALAXY_2021_MINOR_VERSION  10
+#define GALAXY_2021_MINOR_VERSION  11
 #define DEBUG_MESSAGES  0
 
 // flickering GI attract (how long?)
@@ -3302,7 +3302,7 @@ int CountdownBonus(boolean curStateChanged) {
     BonusCountDownEndTime = 0xFFFFFFFF;
   }
 
-  unsigned long countdownDelayTime = 250 - (Bonus[CurrentPlayer] * 3);
+  unsigned long countdownDelayTime = 250 - (Bonus[CurrentPlayer] * 2);
 
   if ((CurrentTime - LastCountdownReportTime) > countdownDelayTime) {
 
